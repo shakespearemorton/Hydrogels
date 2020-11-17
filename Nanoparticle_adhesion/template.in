@@ -1,0 +1,137 @@
+# LAMMPS input file
+# Hydrogel with nanoparticle(np)
+
+# ----- Variables -----
+
+variable K equal 40.0
+variable K2 equal 800.0
+variable R0 equal 1.0
+variable R1 equal 1.42
+variable theta1 equal 90.0
+variable theta2 equal 180.0
+variable k1 equal 75.0
+variable k2 equal 75.0
+
+variable fname string system
+variable fname2 string sscurve_system
+variable fname3 string fuckitsystem
+variable step equal 1000
+variable dt equal 0.00002
+
+# ----- Initialisation -----
+
+units 			lj								# sets timestep to _ fs by default
+boundary 		p p p
+atom_style 		angle
+log 			log.${fname}.txt
+timestep 		${dt}
+
+# ----- Atom Definition -----
+special_bonds   lj 0.0 1.0 1.0 coul 1.0 1.0 1.0 
+read_data		gel_run.txt
+read_data 		${fname}.txt add append
+
+# ----- Force Fields ----- 
+
+bond_style 		harmonic 							# bonds
+bond_coeff 		1 ${K} ${R0}				# bond_type K R0
+bond_coeff 		2 ${K2} ${R1}				# bond_type K R0 
+angle_style 	harmonic
+angle_coeff		1 ${k2} ${theta2}
+angle_coeff		2 ${k1} ${theta1} 
+pair_style lj/cut 2.5
+pair_coeff 1 1 0.5 1.0 2.5                  # gel-gel
+pair_coeff 1 2 10.0 1 2.5                  # gel-nanoparticle
+pair_coeff 2 2 0.0 0.0 0.00                 # np-np
+
+# ----- Settings ----- 
+
+compute peratom all pe/atom
+
+# ----- Fixes -----
+
+
+# ------ Use atom for VMD ------
+dump            1 all atom 10000 ${fname}.atom
+
+# ----- Energy Minimisation -----
+
+min_style 		cg
+minimize 		1e-1.5 1e-1.5 500 1000
+run 			10000
+
+# ----- Rigid -----
+
+variable K2 equal 0
+bond_coeff 		2 ${K2} ${R0}			 
+group           particles type 2
+fix             1 particles rigid single
+
+# ----- Compression -----
+
+reset_timestep 	0
+fix 			1a all npt temp 1.0 1.0 $(100*dt) x 0.0 0.0 $(1000*dt) y 0.0 0.0 $(1000*dt) z 0.0 0.1 $(1000*dt) couple none
+thermo 			${step} 
+thermo_style 	custom step ebond pe lx ly lz press pxx pyy pzz temp
+run 			200000
+unfix 1a
+
+reset_timestep 	0
+fix 			1b all npt temp 1.0 1.0 $(100*dt) x 0.0 0.0 $(1000*dt) y 0.0 0.0 $(1000*dt) z 0.1 0.1 $(1000*dt) couple none
+thermo 			${step} 
+thermo_style 	custom step ebond pe lx ly lz press pxx pyy pzz temp
+run 			200000
+unfix 1b
+reset_timestep 	0
+
+fix 			1b all npt temp 1.0 1.0 $(100*dt) x 0.0 0.0 $(1000*dt) y 0.0 0.0 $(1000*dt) z 0.1 0.0 $(1000*dt) couple none
+thermo 			${step} 
+thermo_style 	custom step ebond pe lx ly lz press pxx pyy pzz temp
+run 			200000
+unfix 1b
+
+
+# ----- Equilibration -----
+
+reset_timestep	0
+fix 2 all npt temp 1.0 1.0 $(100*dt) x 0.0 0.0 $(1000*dt) y 0.0 0.0 $(1000*dt) z 0.0 0.0 $(1000*dt) couple none
+thermo 			${step} 
+thermo_style 	custom step ebond pe lx ly lz press pxx pyy pzz temp
+run 			1500000
+unfix 2
+variable pe1 equal "-pe"
+fix def2 all print 100 "${pe1}" file ${fname3}.txt screen no
+# Store final cell length for strain calculations
+variable tmp equal "lz"
+variable L0 equal ${tmp}
+print "Initial Length, L0: ${L0}"
+
+dump 			2 all custom 20000 dump.${fname}.* id type x y z
+
+#-------- DEFORMATION -----------
+
+reset_timestep	0
+variable srate1 equal "0.025"
+fix		3 all npt temp 1.0 1.0 $(100*dt) x 0.0 0.0 $(1000*dt) y 0.0 0.0 $(1000*dt) couple none pchain 3 tchain 3 drag 1.0
+fix		4 all deform 1 z erate ${srate1} remap x units box
+# Output strain and stress info to file
+variable strain equal "(lz - v_L0)/v_L0"
+variable p1 equal "v_strain"
+variable p2 equal "-pxx"
+variable p3 equal "-pyy"
+variable p4 equal "-pzz"
+fix def2 all print 100 "${p1} ${p4}" file ${fname2}.txt screen no
+
+# Display thermo
+thermo 			${step} 
+thermo_style 	custom step pe lx ly lz press pxx pyy pzz temp
+run 			10000000
+# ----- Final Statement ----- 
+write_restart AllDone1.txt
+
+# Simulation Finished
+
+print 			"All Done"
+
+
+

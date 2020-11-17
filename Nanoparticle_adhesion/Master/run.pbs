@@ -1,0 +1,25 @@
+#!/bin/bash
+
+#PBS -l select=1:ncpus=8:mem=4gb
+#PBS -l walltime=30:00:00
+
+module load lammps/2018-12-12
+module load intel-suite
+module load anaconda3/personal
+
+cp $PBS_O_WORKDIR/system10.txt .
+cp $PBS_O_WORKDIR/gel_run.txt .
+cp $PBS_O_WORKDIR/template.in .
+cp $PBS_O_WORKDIR/template.in .
+cp $PBS_O_WORKDIR/Post_Process.py .
+
+timeout 1780m lmp -in template.in
+
+python Post_Process.py
+
+mkdir Dumps
+cp dump* Dumps
+rm dump*
+rm fuck*.*
+
+cp * $PBS_O_WORKDIR
