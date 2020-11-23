@@ -7,6 +7,7 @@ Created on Thu Nov 19 11:12:55 2020
 """
 import numpy as np
 from matplotlib import pylab as plt
+from numpy.core.umath_tests import inner1d
 
 # ---------- Develop square 2D network and bonds ----------
 def squareNetwork(xl,yl,lo):
@@ -40,52 +41,100 @@ def squareNetwork(xl,yl,lo):
         else:
             neigh.append([pos.index([i,j-1]),pos.index([i+1,j]),pos.index([i-1,j]),pos.index([i,j+1])])
  
+    
+    new = []
+    for i in range(len(neigh)):
+        for j in neigh[i]:
+            current = [j,i] in new
+            if  current == False:
+                new.append([i,j])
+    neigh = np.array(new)
+    pos = np.asarray(pos).astype(float)
     return (pos,neigh)
 
-# ---------- Calculates radial distance between two points ----------            
-def radDistance( x1, x2 ):
-  x1 = np.array( x1 )
-  x2 = np.array( x2 )
-  r2 = ( ( x1 - x2 )**2 ).sum() 
-  return (r2)            
+# ---------- Finds nodes at the bottom of the array, which can then be fixed (0) or free(1) ----------                     
+
+def fixbot(pos):
+    bot=[]
+    for i in range(len(pos)):
+        current = pos[i]
+        if current[1] == 0:
+            bot.append(i)
+    fixed = np.ones(len(pos))
+    for i in bot:
+        fixed[i]=0
+    return(fixed)
+
+# ---------- Finds nodes at the top of the array, which are then pulled up ----------   
+
+def topper(pos):
+    top=[]
+    for i in range(len(pos)):
+        current = pos[i]
+        if current[1] == np.max(pos[:,1]):
+            top.append(i)
+    return(top)
     
 # ---------- Calculates force on each node ----------
-#this definitely isn't working yet, but as of now it pulls the top level up
-def force(pos,neigh,k,lo,top,dt,t,Fr,n,prevpos,mass,f):
-    acc = np.zeros((len(pos),2))
-    k=0
-    for i in range(len(pos)):
-        for j in neigh[i]:
-            l = radDistance(pos[i],pos[j])
-            #hook = k*(l-lo)*((np.array(pos[j])-np.array(pos[i]))/l)
-        if i in top:
-            f[k,1] += Fr*(t+1)
-            
-        acc[i]+=f[k]/mass
-        k+=1
-    return(f,acc)
+def move(pos, fixed, neigh, w0, k, Fb, cycles=1000, precision=0.001, dampening=0.1):
+
+    F = np.zeros(pos.shape)
+    
+    for i in range(cycles):
+    
+        # Init force applied per knot
+        F = np.zeros(pos.shape)
+        
+        # Calculate forces
+        bonds = pos[neigh[:,1]]-pos[neigh[:,0]] # get link vectors between knots
+        bonds = np.asarray(bonds).astype(float)
+        w1 = np.sqrt(inner1d(bonds,bonds)) # get link lengths
+        bonds/=w1[:,None] # normalize link vectors
+        f = (w1 - w0) # calculate force vectors
+        f = f[:,None] * bonds
+        
+        
+        # Apply force vectors on each knot
+        np.add.at(F, neigh[:,0], f)
+        np.subtract.at(F, neigh[:,1], f)
+        #neigh = breaker(F,neigh,Fb)
+        # Update point positions       
+        pos += k * F * dampening * fixed[:,None]
+    
+        # If the maximum force applied is below our precision criteria, exit
+        if np.amax(F) < precision:
+            break
+
+    return (pos,neigh)
+
+# ---------- Initiates a crack ----------   
+def cracked(neigh,crack):
+    b = []
+    for i in range(len(neigh)):
+        if neigh[i,0]+1 <= crack or neigh[i,1]+1 <= crack:
+            b.append(i)
+    neigh = np.delete(neigh,b,0)
+    return(neigh)
 
 
 # ---------- If the force between the bonds is greater than the breaking force -> delete bond ----------
 #if the bond is broken, the force goes to 0
-def breaker(f,Fb,neigh,pos):
-    k=0
-    m=0
-    for i in range(len(pos)):
-        for j in neigh[i]:
-            if f[k].sum() > Fb:
-                neigh[i].remove(j)
-                f[k] = 0
-            k+=1
-    return(neigh,f)
+def breaker(F,neigh,Fb):
+    b=[]
+    for i in range(len(F)):
+        if F[i].sum() > Fb:
+            b.append(i)
+            print('break')
+    neigh = np.delete(neigh,b,0)
+    return(neigh)
 
 
 # ---------- Prints an output at each timestep for viewing in Ovito as a LAMMPS bonds script ----------
-def printer(pos,f,neigh,t):
+def printer(pos,neigh,t):
     with open( 'pos'+repr(t)+'.txt', 'w' ) as g:
         g.write("#Elastic Network\n#second line will be skipped\n\n" )
         g.write( "{0:.0f} atoms\n".format( len(pos)) )
-        g.write( "{0:.0f} bonds\n".format( len(f)) )
+        g.write( "{0:.0f} bonds\n".format( len(neigh)) )
         g.write("0 angles\n\n" )
         g.write("1 atom types\n1 bond types\n0 angle types\n-50 50 xlo xhi\n-50 50 ylo yhi\n-100 100 zlo zhi\n\nMasses\n\n1 1.0\n\nAtoms\n\n")
 
@@ -93,11 +142,8 @@ def printer(pos,f,neigh,t):
             g.write( "{0:.0f} 1 1 {1:.0f}. {2:.0f}. {3:.0f}.\n".format( t+1, pos[ t, 0 ], pos[ t, 1 ],0) )
 
         g.write ("\nBonds\n\n")
-        i=0
-        for k in range(len(pos)):
-            for j in neigh[k]:
-                g.write ("{0:.0f} {1:.0f} {2:.0f} {3:.0f} \n".format( i+1, 1, k+1, j+1))
-                i+=1
+        for k in range(len(neigh)):
+            g.write ("{0:.0f} {1:.0f} {2:.0f} {3:.0f} \n".format( k+1, 1, neigh[k,0]+1, neigh[k,1]+1))
         g.write("\nAngles")
         g.close()
     return()
