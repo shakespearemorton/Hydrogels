@@ -40,8 +40,6 @@ def squareNetwork(xl,yl,lo):
             neigh.append([pos.index([i,j+1]),pos.index([i+1,j]),pos.index([i-1,j])])
         else:
             neigh.append([pos.index([i,j-1]),pos.index([i+1,j]),pos.index([i-1,j]),pos.index([i,j+1])])
- 
-    
     new = []
     for i in range(len(neigh)):
         for j in neigh[i]:
@@ -53,7 +51,6 @@ def squareNetwork(xl,yl,lo):
     return (pos,neigh)
 
 # ---------- Finds nodes at the bottom of the array, which can then be fixed (0) or free(1) ----------                     
-
 def fixbot(pos):
     bot=[]
     for i in range(len(pos)):
@@ -66,7 +63,6 @@ def fixbot(pos):
     return(fixed)
 
 # ---------- Finds nodes at the top of the array, which are then pulled up ----------   
-
 def topper(pos):
     top=[]
     for i in range(len(pos)):
@@ -76,58 +72,61 @@ def topper(pos):
     return(top)
     
 # ---------- Calculates force on each node ----------
-def move(pos, fixed, neigh, w0, k, Fb, cycles=1000, precision=0.001, dampening=0.1):
-
+def move(pos, fixed, neigh, w0, k, crack, Fb, Fr, top, t, cycles=1000, precision=0.001, dampening=0.1):
     F = np.zeros(pos.shape)
-    
     for i in range(cycles):
-    
-        # Init force applied per knot
         F = np.zeros(pos.shape)
-        
-        # Calculate forces
-        bonds = pos[neigh[:,1]]-pos[neigh[:,0]] # get link vectors between knots
+        F[top,1]+=Fr*t
+        bonds = pos[neigh[:,1]]-pos[neigh[:,0]] 
         bonds = np.asarray(bonds).astype(float)
-        w1 = np.sqrt(inner1d(bonds,bonds)) # get link lengths
-        bonds/=w1[:,None] # normalize link vectors
-        f = (w1 - w0) # calculate force vectors
+        w1 = np.sqrt(inner1d(bonds,bonds)) 
+        bonds/=w1[:,None] 
+        f = (w1 - w0)
         f = f[:,None] * bonds
-        
-        
-        # Apply force vectors on each knot
         np.add.at(F, neigh[:,0], f)
         np.subtract.at(F, neigh[:,1], f)
-        #neigh = breaker(F,neigh,Fb)
-        # Update point positions       
-        pos += k * F * dampening * fixed[:,None]
-    
-        # If the maximum force applied is below our precision criteria, exit
+        pos += k * F * 1 * fixed[:,None]
         if np.amax(F) < precision:
             break
+    return (pos,neigh,F,w0,crack)
 
-    return (pos,neigh)
+
+# ---------- Calculates force on each node ----------
+def move2(pos, fixed, neigh, w0, k, crack, Fb, Fr, top, t, damp, n, dt):
+    F = np.zeros(pos.shape)
+    F[top,1]+=Fr*t
+    bonds = pos[neigh[:,1]]-pos[neigh[:,0]] 
+    bonds = np.asarray(bonds).astype(float)
+    w1 = np.sqrt(inner1d(bonds,bonds)) 
+    bonds/=w1[:,None] 
+    f = (w1 - w0)
+    f = f[:,None] * bonds * (n*damp/dt)
+    np.add.at(F, neigh[:,0], f)
+    np.subtract.at(F, neigh[:,1], f)
+    pos += k * F * 1 * fixed[:,None]
+    return (pos,neigh,F,w0,crack)
 
 # ---------- Initiates a crack ----------   
-def cracked(neigh,crack):
+def cracked(neigh,crack,w0):
     b = []
     for i in range(len(neigh)):
         if neigh[i,0]+1 <= crack or neigh[i,1]+1 <= crack:
             b.append(i)
     neigh = np.delete(neigh,b,0)
-    return(neigh)
+    w0 = np.delete(w0,b,0)
+    return(neigh,w0)
 
-
-# ---------- If the force between the bonds is greater than the breaking force -> delete bond ----------
-#if the bond is broken, the force goes to 0
-def breaker(F,neigh,Fb):
-    b=[]
-    for i in range(len(F)):
-        if F[i].sum() > Fb:
-            b.append(i)
-            print('break')
-    neigh = np.delete(neigh,b,0)
-    return(neigh)
-
+# ---------- Output for when break occurs ----------   
+def breaker(pos,fixed,F,Fb):
+    test=[]
+    for i in range(len(pos)):
+        if fixed[i] == 0:
+            x = F[i].sum()/Fb
+            if x != 0:
+                test.append(x)
+    d = np.arange(1,len(test)+1)
+    plt.loglog(d,test)
+    return()
 
 # ---------- Prints an output at each timestep for viewing in Ovito as a LAMMPS bonds script ----------
 def printer(pos,neigh,t):
