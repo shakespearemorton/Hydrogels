@@ -72,8 +72,10 @@ def topper(pos):
     return(top)
     
 # ---------- Calculates force on each node ----------
-def move(pos, fixed, neigh, w0, k, crack, Fb, Fr, top, t, cycles=1000, precision=0.001, dampening=0.1):
+def move(pos, fixed, neigh, w0, k, crack, Fb, Fr, top, t):
     F = np.zeros(pos.shape)
+    cycles=1000
+    precision=0.001
     for i in range(cycles):
         F = np.zeros(pos.shape)
         F[top,1]+=Fr*t
